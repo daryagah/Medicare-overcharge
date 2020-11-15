@@ -1,0 +1,735 @@
+---
+title: "Final Project"
+output: word_document
+---
+
+```{r}
+require("knitr")
+knitr::opts_knit$set(root.dir = "C:/Users/Darya/Documents/USF/Fall 2020/Statistical Data Mining - ISM 6137/Final Project")
+library(plyr)
+library(dplyr)
+library(tidyr)
+library(PerformanceAnalytics)
+library(Hmisc)
+library(lme4)
+library(ggplot2)
+library(gridExtra)
+library(ggcorrplot)
+library(caret)
+library(car)
+library(stargazer)
+```
+
+Read the data
+```{r}
+procedure_12 <- read.delim("Medicare_Provider_Util_Payment_PUF_CY2012/Medicare_Provider_Util_Payment_PUF_CY2012.txt")
+procedure_13 <- read.delim("Medicare_Provider_Util_Payment_PUF_CY2013/Medicare_Provider_Util_Payment_PUF_CY2013.txt")
+procedure_14 <- read.delim("Medicare_Provider_Util_Payment_PUF_CY2014/Medicare_Provider_Util_Payment_PUF_CY2014.txt")
+procedure_15 <- read.delim("Medicare_Provider_Util_Payment_PUF_CY2015/Medicare_Provider_Util_Payment_PUF_CY2015.txt")
+procedure_16 <- read.delim("Medicare_Provider_Util_Payment_PUF_CY2016/Medicare_Provider_Util_Payment_PUF_CY2016.txt")
+procedure_17 <- read.delim("Medicare_Provider_Util_Payment_PUF_CY2017/Medicare_Provider_Util_Payment_PUF_CY2017.txt")
+provider_12 <- read.delim("Medicare_Physician_and_Other_Supplier_NPI_Aggregate_CY2012/Medicare_Physician_and_Other_Supplier_NPI_Aggregate_CY2012.txt")
+provider_13 <- read.delim("Medicare_Physician_and_Other_Supplier_NPI_Aggregate_CY2013/Medicare_Physician_and_Other_Supplier_NPI_Aggregate_CY2013.txt")
+provider_14 <- read.delim("Medicare_Physician_and_Other_Supplier_NPI_Aggregate_CY2014/Medicare_Physician_and_Other_Supplier_NPI_Aggregate_CY2014.txt")
+provider_15 <- read.delim("Medicare_Physician_and_Other_Supplier_NPI_Aggregate_CY2015/Medicare_Physician_and_Other_Supplier_NPI_Aggregate_CY2015.txt")
+provider_16 <- read.delim("Medicare_Physician_and_Other_Supplier_NPI_Aggregate_CY2016/Medicare_Physician_and_Other_Supplier_NPI_Aggregate_CY2016.txt")
+provider_17 <- read.delim("Medicare_Physician_and_Other_Supplier_NPI_Aggregate_CY2017/Medicare_Physician_and_Other_Supplier_NPI_Aggregate_CY2017.txt")
+```
+
+Make column names lowercase
+```{r}
+colnames(procedure_12) = tolower(make.names(colnames(procedure_12)))
+colnames(procedure_13) = tolower(make.names(colnames(procedure_13)))
+colnames(procedure_14) = tolower(make.names(colnames(procedure_14)))
+colnames(procedure_15) = tolower(make.names(colnames(procedure_15)))
+colnames(procedure_16) = tolower(make.names(colnames(procedure_16)))
+colnames(procedure_17) = tolower(make.names(colnames(procedure_17)))
+colnames(provider_12) = tolower(make.names(colnames(provider_12)))
+colnames(provider_13) = tolower(make.names(colnames(provider_13)))
+colnames(provider_14) = tolower(make.names(colnames(provider_14)))
+colnames(provider_15) = tolower(make.names(colnames(provider_15)))
+colnames(provider_16) = tolower(make.names(colnames(provider_16)))
+colnames(provider_17) = tolower(make.names(colnames(provider_17)))
+```
+
+For procedures, average_Medicare_standard_amt is added since 2014, and the stdevs are removed.
+Column names in 2012 and 2013 are different from others and are changed
+```{r}
+provider_12 <- cbind(provider_12[1:67], provider_12[70]) # dropping 2 empty columns
+
+colnames(provider_12) <- c(colnames(provider_16[1:21]), colnames(provider_16[23:29]), colnames(provider_16[31:37]), colnames(provider_16[39:71]))
+colnames(provider_13) <- colnames(provider_12)
+colnames(provider_14) <- colnames(provider_16)
+colnames(provider_15) <- colnames(provider_16)
+```
+
+*** Transformations below are demonstrated on Providers 2012 and Procedures 2012 tables only, but are applied to all tables 2012-2017 ***
+  Total Services = Drug Services + Medical Services, no need to include both
+  No need for City
+  Only US is selected
+  Only Individual entities, no Organizations
+  No need for credentials - there are too many variations of them
+
+Providers
+```{r}
+# Select relevant columns:
+provs <- c("npi", "nppes_entity_code", "nppes_provider_state", "nppes_provider_country", "provider_type", "medicare_participation_indicator", "number_of_hcpcs", "total_services", "total_unique_benes", "total_submitted_chrg_amt", "total_medicare_allowed_amt", "total_medicare_payment_amt", "number_of_med_hcpcs", "total_med_services", "total_med_unique_benes", "total_med_submitted_chrg_amt", "total_med_medicare_allowed_amt", "total_med_medicare_payment_amt", "beneficiary_average_age", "beneficiary_age_less_65_count", "beneficiary_age_65_74_count", "beneficiary_age_75_84_count", "beneficiary_age_greater_84_count", "beneficiary_female_count", "beneficiary_male_count", "beneficiary_race_white_count", "beneficiary_race_black_count", "beneficiary_race_api_count", "beneficiary_race_hispanic_count", "beneficiary_race_natind_count", "beneficiary_race_other_count", "beneficiary_nondual_count", "beneficiary_dual_count", "beneficiary_cc_afib_percent", "beneficiary_cc_alzrdsd_percent", "beneficiary_cc_asthma_percent", "beneficiary_cc_cancer_percent", "beneficiary_cc_chf_percent", "beneficiary_cc_ckd_percent", "beneficiary_cc_copd_percent", "beneficiary_cc_depr_percent", "beneficiary_cc_diab_percent", "beneficiary_cc_hyperl_percent", "beneficiary_cc_hypert_percent", "beneficiary_cc_ihd_percent", "beneficiary_cc_ost_percent", "beneficiary_cc_raoa_percent", "beneficiary_cc_schiot_percent", "beneficiary_cc_strk_percent", "beneficiary_average_risk_score")
+prov_12 <- subset(provider_12, select=provs)
+
+# Select US only
+prov_12 <- subset(prov_12, nppes_provider_country=="US")
+# Some regions (with only a few values - drop them
+prov_12 %>% group_by(nppes_provider_state) %>% summarise(no_rows = length(nppes_provider_state))
+'%notin%' <- Negate('%in%')
+prov_12 <- prov_12[which(prov_12$nppes_provider_state %notin% c("AA", "AE", "AP", "AS", "GU", "MP", "PR", "VI", "XX")), ]
+# Select only individuals (not organizations)
+prov_12 <- subset(prov_12, nppes_entity_code=="I")
+
+# Numbers in providers are characters. Need to ged rid of special characters and convert them to numbers
+providers_num = c("number_of_hcpcs", "total_services", "total_unique_benes", "total_submitted_chrg_amt", "total_medicare_allowed_amt", "total_medicare_payment_amt", "total_med_services", "total_med_unique_benes", "total_med_submitted_chrg_amt", "total_med_medicare_allowed_amt", "total_med_medicare_payment_amt", "beneficiary_age_less_65_count", "beneficiary_age_65_74_count", "beneficiary_age_75_84_count", "beneficiary_age_greater_84_count", "beneficiary_female_count", "beneficiary_male_count", "beneficiary_race_white_count", "beneficiary_race_black_count", "beneficiary_race_api_count", "beneficiary_race_hispanic_count", "beneficiary_race_natind_count", "beneficiary_race_other_count", "beneficiary_nondual_count", "beneficiary_dual_count")
+prov_12[providers_num] <- lapply(prov_12[providers_num], function(x) as.numeric(gsub('[$,]', '', x)))
+
+# Drop rows where charge = 0 or NA
+prov_12$total_med_submitted_chrg_amt <- lapply(prov_12$total_med_submitted_chrg_amt, function(x) ifelse(x==0, NA, x))
+prov_12 <- prov_12[complete.cases(prov_12$total_med_submitted_chrg_amt),]
+
+# Calculate Overcharge
+prov_12$overcharge <- prov_12$total_submitted_chrg_amt - prov_12$total_medicare_payment_amt
+
+# Drop no longer needed columns
+prov_12 <- prov_12[ , !(names(prov_12) %in% c("nppes_provider_country", "nppes_entity_code", "nppes_credentials", "total_medicare_allowed_amt", "total_submitted_chrg_amt", "total_medicare_payment_amt"))]
+
+providers_fac = c("nppes_provider_state", "provider_type", "medicare_participation_indicator")
+# Lowercase all factor variables to make them the same
+prov_12[providers_fac] <- lapply(prov_12[providers_fac], tolower)
+# Empty strings in factor variables are not recognized as NAs. We need to get them manually
+prov_12[providers_fac] <- lapply(prov_12[providers_fac], as.character)
+prov_12[providers_fac] <- lapply(prov_12[providers_fac], function(x) ifelse(x!="", x, NA))
+prov_12[providers_fac] <- lapply(prov_12[providers_fac], as.factor)
+prov_12 <- droplevels(prov_12)
+```
+
+Procedures
+```{r}
+# Select relevant columns:
+procs <- c("npi", "nppes_entity_code", "nppes_provider_state", "nppes_provider_country", "provider_type", "medicare_participation_indicator", "place_of_service", "hcpcs_code", "hcpcs_drug_indicator", "line_srvc_cnt", "bene_unique_cnt", "average_medicare_allowed_amt", "average_submitted_chrg_amt", "average_medicare_payment_amt")
+proc_12 <- subset(provider_12, select=procs)
+
+# Select US only
+proc_12 <- subset(proc_12, nppes_provider_country=="US")
+# Some regions (with only a few values - drop them
+proc_12 %>% group_by(nppes_provider_state) %>% summarise(no_rows = length(nppes_provider_state))
+'%notin%' <- Negate('%in%')
+proc_12 <- proc_12[which(proc_12$nppes_provider_state %notin% c("AA", "AE", "AP", "AS", "GU", "MP", "PR", "VI", "XX")), ]
+# Select only individuals (not organizations)
+proc_12 <- subset(proc_12, nppes_entity_code=="I")
+
+# Ged rid of special characters and convert them to numbers
+procedures_num = c("average_medicare_allowed_amt", "average_submitted_chrg_amt", "average_medicare_payment_amt")
+proc_12[procedures_num] <- lapply(proc_12[procedures_num], function(x) as.numeric(gsub('[$,]', '', x)))
+
+# Drop rows where charge = 0 or NA
+proc_12$total_med_submitted_chrg_amt <- lapply(proc_12$total_med_submitted_chrg_amt, function(x) ifelse(x==0, NA, x))
+proc_12 <- proc_12[complete.cases(proc_12$total_med_submitted_chrg_amt),]
+
+# Calculate Overcharge
+proc_12$overcharge <- proc_12$total_submitted_chrg_amt - proc_12$total_medicare_payment_amt
+
+# Drop no longer needed columns
+proc_12 <- proc_12[ , !(names(providers) %in% c("nppes_provider_country", "nppes_entity_code", "average_medicare_allowed_amt", "average_submitted_chrg_amt", "average_medicare_payment_amt"))]
+
+procedures_fac = c("npi", "nppes_provider_state", "provider_type", "medicare_participation_indicator", "place_of_service", "hcpcs_code", "hcpcs_drug_indicator")
+# Lowercase all factor variables to make them the same
+proc_12[procedures_fac] <- tolower(proc_12[procedures_fac])
+# Empty strings in factor variables are not recognized as NAs. We need to get them manually
+proc_12[procedures_fac] <- lapply(proc_12[procedures_fac], as.character)
+proc_12[procedures_fac] <- lapply(proc_12[procedures_fac], function(x) ifelse(x!="", x, NA))
+
+# Group HCPCS codes
+proc_12$hcpcs_desc <- gsub('^(0010[0-9]|001[1-9][0-9]|00[2-9][0-9]{2}|01[0-9]{3})$', 'Anesthesia', proc_12$hcpcs_code)
+proc_12$hcpcs_desc <- gsub('^(1000[4-9]|100[12][0-9])$', 'Fine Needle Aspiration Biopsy Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(77031|77032|1003[0-9]|100[4-9][0-9]|10[1-9][0-9]{2}|1[1-9][0-9]{3}|200[0-9]{2})$', 'Surgical Procedures on the Integumentary System', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(2010[0-9]|201[1-9][0-9]|20[2-9][0-9]{2}|2[1-9][0-9]{3})$', 'Surgical Procedures on the Musculoskeletal System', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(3000[0-9]|300[1-9][0-9]|30[1-9][0-9]{2}|3[12][0-9]{3})$', 'Surgical Procedures on the Respiratory System', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(3300[0-9]|330[1-9][0-9]|33[1-9][0-9]{2}|3[4-6][0-9]{3}|37[0-7][0-9]{2})$', 'Surgical Procedures on the Cardiovascular System', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(3810[0-9]|381[1-9][0-9]|38[2-9][0-9]{2})$', 'Surgical Procedures on the Hemic and Lymphatic Systems', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(3900[0-9]|390[1-9][0-9]|39[1-5][0-9]{2})$', 'Surgical Procedures on the Mediastinum and Diaphragm', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(4049[0-9]|40[5-9][0-9]{2}|4[1-9][0-9]{3})$', 'Surgical Procedures on the Digestive System', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(5001[0-9]|500[2-9][0-9]|50[1-9][0-9]{2}|5[12][0-9]{3}|53[0-8][0-9]{2})$', 'Surgical Procedures on the Urinary System', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(5400[0-9]|540[1-9][0-9]|54[1-9][0-9]{2}|55[0-8][0-9]{2})$', 'Surgical Procedures on the Male Genital System', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(55920)$', 'Reproductive System Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(5597[0-9]|55980)$', 'Intersex Surgery', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(5640[5-9]|564[1-9][0-9]|56[5-9][0-9]{2}|5[78][0-9]{3})$', 'Surgical Procedures on the Female Genital System', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(5900[0-9]|590[1-9][0-9]|59[1-8][0-9]{2})$', 'Surgical Procedures for Maternity Care and Delivery', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(6000[0-9]|600[1-9][0-9]|60[1-6][0-9]{2})$', 'Surgical Procedures on the Endocrine System', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(6100[0-9]|610[1-9][0-9]|61[1-9][0-9]{2}|6[2-4][0-9]{3})$', 'Surgical Procedures on the Nervous System', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(6509[1-9]|65[1-9][0-9]{2}|6[67][0-9]{3}|68[0-8][0-9]{2})$', 'Surgical Procedures on the Eye and Ocular Adnexa', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(6900[0-9]|690[1-9][0-9]|69[1-8][0-9]{2}|699[0-7][0-9])$', 'Surgical Procedures on the Auditory System', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(69990)$', 'Operating Microscope Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(7001[0-9]|700[2-9][0-9]|70[1-9][0-9]{2}|7[1-5][0-9]{3}|76[0-4][0-9]{2})$', 'Diagnostic Radiology Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(7650[6-9]|765[1-9][0-9]|76[6-9][0-9]{2})$', 'Diagnostic Ultrasound Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(7700[1-9]|7701[0-9]|7702[0-2])$', 'Radiologic Guidance', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(7704[6-9]|7705[0-9]|7706[0-7])$', 'Breast and Mammography', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(7707[1-9]|7708[0-6])$', 'Bone or Joint Studies', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(7726[1-9]|772[7-9][0-9]|77[3-7][0-9]{2})$', 'Radiation Oncology Treatment', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(7800[0-9]|780[1-9][0-9]|78[1-9][0-9]{2}|79[0-9]{3})$', 'Nuclear Medicine Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(8004[7-9]|800[5-7][0-9]|8008[01])$', 'Organ or Disease Oriented Panels', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(8010[0-9]|801[1-9][0-9]|802[0-9]{2}|803[0-6][0-9]|8037[0-7])$', 'Therapeutic Drug Assays', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(8030[5-9]|803[1-6][0-9]|8037[0-7])$', 'Drug Assay Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(8040[0-9]|804[1-3][0-9])$', 'Evocative or Suppression Testing Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(8050[0-2])$', 'Clinical Pathology Consultations', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(8100[0-9]|810[1-9][0-9])$', 'Urinalysis Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(8110[5-9]|811[1-9][0-9]|81[23][0-9]{2}|8140[0-8])$', 'Molecular Pathology Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(8141[0-9]|814[2-7][0-9])$', 'Genomic Sequencing Procedures and Other Molecular Multianalyte Assays', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(8149[0-9]|815[0-9]{2})$', 'Multianalyte Assays with Algorithmic Analyses', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(8200[0-9]|820[1-9][0-9]|82[1-9][0-9]{2}|8[34][0-9]{3})$', 'Chemistry Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(8500[2-9]|850[1-9][0-9]|85[1-9][0-9]{2})$', 'Hematology and Coagulation Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(8600[0-9]|860[1-9][0-9]|86[1-7][0-9]{2}|868[0-4][0-9])$', 'Immunology Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(8685[0-9]|868[6-9][0-9]|869[0-9]{2})$', 'Transfusion Medicine Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(8700[3-9]|870[1-9][0-9]|87[1-9][0-9]{2})$', 'Microbiology Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(8800[0-9]|880[1-9][0-9])$', 'Postmortem Examination Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(8810[4-9]|881[1-9][0-9])$', 'Cytopathology Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(8823[0-9]|882[4-9][0-9])$', 'Cytogenetic Studies', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(8830[0-9]|883[1-9][0-9])$', 'Surgical Pathology Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(8872[0-9]|887[34][0-9])$', 'Transcutaneous Laboratory Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(89049|890[5-9][0-9]|891[0-9]{2}|892[0-3][0-9]|89240)$', 'Other Pathology and Laboratory Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(8925[0-9]|892[6-9][0-9]|893[0-8][0-9]|8939[0-8])$', 'Reproductive Medicine Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9028[1-9]|9029[0-9]|903[0-9]{2})$', 'Immune Globulins Serum or Recombinant Products', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9046[0-9]|9047[0-4])$', 'Immunization Administration for Vaccines or Toxoids', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9047[6-9]|904[89][0-9]|90[56][0-9]{2}|907[0-4][0-9]|9075[0-6])$', 'Vaccines or Toxoids', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9078[5-9]|9079[0-9]|908[0-9]{2})$', 'Psychiatry Services and Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9090[1-9]|9091[0-3])$', 'Biofeedback Services and Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9093[5-9]|909[4-9][0-9])$', 'Dialysis Services and Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9101[0-9]|910[2-9][0-9]|91[12][0-9]{2})$', 'Gastroenterology Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9200[2-9]|920[1-9][0-9]|92[1-4][0-9]{2})$', 'Ophthalmology Services and Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9250[2-9]|925[1-9][0-9]|926[0-9]{2}|92700)$', 'Special Otorhinolaryngologic Services and Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9292[0-9]|929[3-9][0-9]|93[0-7][0-9]{2})$', 'Cardiovascular Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9388[0-9]|9389[0-9]|939[0-8][0-9]|9399[0-8])$', 'Non-Invasive Vascular Diagnostic Studies', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9400[2-9]|940[1-9][0-9]|94[1-7][0-9]{2})$', 'Pulmonary Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9500[4-9]|950[1-9][0-9]|951[0-9]{2})$', 'Allergy and Clinical Immunology Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(95249|9525[01])$', 'Endocrinology Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9570[0-9]|957[1-9][0-9]|95[89][0-9]{2}|960[01][0-9]|96020)$', 'Neurology and Neuromuscular Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(96040)$', 'Medical Genetics and Genetic Counseling Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9610[0-9]|961[1-3][0-9]|9614[0-6])$', 'Central Nervous System Assessments', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9615[0-9]|9616[0-9]|9617[01])$', 'Health and Behavior Assessment or Intervention Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9636[0-9]|963[7-9][0-9]|964[0-9]{2}|965[0-4][0-9])$', 'Highly Complex Drug or Biologic Agent Administration', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9656[7-9]|9657[0-4])$', 'Photodynamic Therapy Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9690[0-9]|969[1-9][0-9])$', 'Special Dermatological Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9700[0-9]|970[1-3][0-9])$', 'Application of a Modality', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9711[0-9]|971[2-4][0-9]|97150)$', 'Therapeutic Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9715[1-8])$', 'Adaptive Behavior Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9716[1-9]|971[7-9][0-9]|97[2-7][0-9]{2})$', 'Physical Medicine and Rehabilitation Evaluations', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9780[2-4])$', 'Medical Nutrition Therapy Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9781[0-4])$', 'Acupuncture Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9892[5-9])$', 'Osteopathic Manipulative Treatment Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9894[0-3])$', 'Chiropractic Manipulative Treatment Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9896[0-2])$', 'Education and Training for Patient Self-Management', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9896[6-9]|9897[0-2])$', 'Non-Face-to-Face Nonphysician Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9900[0-9]|990[1-8][0-9]|9909[01])$', 'Special Services, Procedures and Reports', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9910[0-9]|991[1-3][0-9]|99140)$', 'Qualifying Circumstances for Anesthesia', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9914[1-9]|9915[0-7])$', 'Moderate (Conscious) Sedation', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9917[0-9]|991[89][0-9])$', 'Other Medicine Services and Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9950[0-9]|995[1-9][0-9]|9960[0-2])$', 'Home Health Procedures and Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9960[5-7])$', 'Medication Therapy Management Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9920[1-9]|9921[0-5])$', 'Office or Other Outpatient Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9921[7-9]|9922[0-6])$', 'Hospital Observation Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9922[1-9]|9923[0-9])$', 'Hospital Inpatient Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9924[1-9]|9925[0-5])$', 'Consultation Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9928[1-8])$', 'Emergency Department Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(99291|99292)$', 'Critical Care Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9930[4-9]|9931[0-8])$', 'Nursing Facility Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9932[4-9]|993[34][0-9]|99350)$', 'Home Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9935[4-9]|993[6-9][0-9]|9940[0-9]|9941[0-6])$', 'Prolonged Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9936[6-8])$', 'Case Management Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9937[4-9]|99380)$', 'Care Plan Oversight Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9938[1-9]|9939[0-9]|994[0-2][0-9])$', 'Preventive Medicine Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9944[1-9]|9944[0-9])$', 'Non-Face-to-Face Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9945[0-8])$', 'Special Evaluation and Management Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9945[0-9]|9946[0-5])$', 'Newborn Care Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9946[6-9]|9947[0-9]|9948[0-6])$', 'Inpatient Neonatal Intensive Care Services and Pediatric and Neonatal Critical Care Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9948[3-6])$', 'Cognitive Assessment and Care Plan Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9948[7-9]|9949[01])$', 'Care Management Evaluation and Management Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(9949[2-4])$', 'Psychiatric Collaborative Care Management Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(99495|99496)$', 'Transitional Care Evaluation and Management Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(99497|99498)$', 'Advance Care Planning Evaluation and Management Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(99499)$', 'Other Evaluation and Management Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(0{3}[1-9]|00[1-9][0-9]|0[1-9][0-9]{2}|[1-8][0-9]{3}|900[0-7])F$', 'Category II', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(0{3}[1-9])M$', 'Multianalyte Assay', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(0{3}[0-9]|00[1-9][0-9]|0[1-5][0-9]{2}|06[01][0-9])T$', 'Category III', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(0{3}[1-3])U$', 'Laboratory Analyses', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^A[0-9][0-9][0-9][0-9]$', 'Ambulatory Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^B[0-9][0-9][0-9][0-9]$', 'Enteral and Parenteral Therapy', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^C[0-9][0-9][0-9][0-9]$', 'Outpatient PPS', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^D[0-9][0-9][0-9][0-9]$', 'Dental Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^E[0-9][0-9][0-9][0-9]$', 'Durable Medical Equipment', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(9141|0{3}[89]|0010)$', 'Vaccine Administration', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G0027$', 'Analysis of Semen Specimen', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(006[89]|0070)$', 'Professional Services for Drug Infusion', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G0071$', 'Telemed Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(007[6-9]|008[0-7])$', 'Home Care Management Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(010[1-9]|011[0-9]|012[0-4])$', 'Screening Examinations and Disease Management Training', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(038[5-9]|012[7-9]|01[3-9][0-9]|02[0-9]{2}|03[0-6][0-9]|037[0-2])$', 'Miscellaneous Diagnostic and Therapeutic Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(037[89]|038[0-4])$', 'Hospital Observation and Emergency Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G0390$', 'Other Emergency Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(0396|0397)$', 'Alcohol and Substance Abuse Assessments', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(039[89]|0400)$', 'Sleep Studies, In Home', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(040[2-5])$', 'Initial Services for Medicare Enrollment', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(040[6-8])$', 'Followup Telehealth Consultations', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(0409|041[01])$', 'Psychological Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(041[2-5])$', 'Fracture Treatment', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(041[6-9])$', 'Gross and Microscopic Examinations Prostate Biopsy', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(0420|0421)$', 'Face-to-Face Educational Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(042[2-4])$', 'Cardiac and Pulmonary Rehabilitation Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(042[5-7])$', 'Initial Telehealth Consultations', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(0428|0429)$', 'Filler Procedures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(043[1-5])$', 'Laboratory Screening Tests', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(043[6-9]|044[0-9]|045[01])$', 'Counseling, Screening, and Prevention Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(045[2-9]|046[0-3])$', 'Miscellaneous Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(046[6-9]|0470)$', 'Federally Qualified Health Center Visits', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(047[1-9]|04[89][0-9]|05[0-9]{2}|06[0-5][0-9])$', 'Other Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(091[3-8])$', 'Quality Measures for Cataract Surgery', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(100[1-9]|101[0-9]|102[0-3])$', 'Clinical Decision Support Mechanism', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G2000$', 'Convulsive Therapy Procedure', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(2170|2171)$', 'Arteriovenous Fistula Procedure', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(2166)$', 'Physical and Cognitive Status', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(202[1-9]|20[34][0-9]|205[0-8])$', 'Care Management Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(2168|2169)$', 'Therapy Maintenance Program in Home Health Setting', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(2167)$', 'Performance Measures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(206[1-3])$', 'Online Assessment by Qualified Nonphysician Healthcare Professional', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(2064|2065)$', 'Comprehensive Care Management Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(2066)$', 'Cardiac Device Evaluation', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(206[7-9]|207[0-5])$', 'Medication Assisted Treatment Programme', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(207[6-9]|208[01])$', 'Opioid Use Disorder - Evaluation and Treatment', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(2082|2083)$', 'Evaluation and Management Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(208[6-8])$', 'Opioid Use Disorder - Treatment', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(2089|209[0-9]|21[0-4][0-9]|215[0-3])$', 'Functional Status', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(215[4-9]|216[0-5])$', 'Immunization Status', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(200[1-9]|201[0-5])$', 'Other Evaluation and Management Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(600[1-9]|601[0-7])$', 'Radiation Therapy Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(6019|602[0-9])$', 'Colonoscopy or Anoscopy', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(603[0-9]|604[0-9]|605[0-8])$', 'Drug Assay', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(839[5-9]|8[45][0-9]{2}|86[0-2][0-9]|863[0-5])$', 'Additional Quality Measures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(864[7-9]|86[56][0-9]|867[0-4])$', 'Quality Measures Related for Risk-adjusted Functional Status Scoring', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(869[4-9]|8[78][0-9]{2}|89[0-6][0-9]|897[0-6])$', 'More Quality Measures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(897[89]|89[89][0-9])$', 'Functional Limitation Reporting', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(900[1-9]|901[0-2])$', 'Medicare Coordinated Care Demonstration', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(901[3-9]|90[2-9][0-9]|91[0-3][0-9]|9140)$', 'Medicare Demonstration Projects', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G9143$', 'Warfarin Responsiveness Testing', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G9147$', 'Outpatient Intravenous Insulin Treatment', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(914[89]|915[0-3])$', 'Primary Care Quality Measures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G9156$', 'Provider Assessment for Wheelchair', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G9157$', 'Diagnostic Cardiac Doppler Ultrasound', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(915[89]|91[67][0-9]|918[0-6])$', 'Functional Limitation Reporting', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G9187$', 'Bundled Payment Care', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(918[89]|919[0-9]|9[2-7][0-9]{2}|98[0-8][0-9]|989[0-3])$', 'Additional Assorted Quality Measures', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(989[4-7])$', 'Radiology services Prostate', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^(G9898|G9910)$', 'Geriatric care Management', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(990[2-9])$', 'Tobacco Screening', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(991[2-5])$', 'Anti TNF Diagnostics for HBV status', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(991[6-8])$', 'Functional Status codes', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(9911|9919|992[0-9]|993[0-7])$', 'Screening', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(993[89]|9940)$', 'Geriatric Care Management and Other Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(994[1-9])$', 'Pain assessment', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(995[4-9]|996[01])$', 'Medications - Antiemetics and Antimicrobials', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(9962|9963)$', 'Embolization', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(996[4-9]|9970)$', 'Screening, Wellness and Physician visits', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(997[4-7])$', 'Vision Assessment', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^G(997[89]|998[0-7])$', 'Remote In-House Evaluation And Management Assessment', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^H[0-9][0-9][0-9][0-9]$', 'Alcohol and Drug Abuse Treatment', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^J(900[0-9]|90[1-9][0-9]|9[1-9][0-9]{2})$', 'Chemotherapy Drugs', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^J(012[0-9]|01[3-9][0-9]|0[2-9][0-9]{2}|[1-8][0-9]{3})$', 'Drugs Administered Other than Oral Method', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^K[0-9][0-9][0-9][0-9]$', 'Durable Medical Equipment Offered Only by Regional Carriers', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^L[0-9][0-9][0-9][0-9]$', 'Orthotics and Prosthetics', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^M[0-9][0-9][0-9][0-9]$', 'Miscellaneous Medical Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^P[0-9][0-9][0-9][0-9]$', 'Pathology and Laboratory Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^Q[0-9][0-9][0-9][0-9]$', 'Temporary Codes', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^R[0-9][0-9][0-9][0-9]$', 'Diagnostic Radiology Services', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^S[0-9][0-9][0-9][0-9]$', 'Temporary National Codes Non-Medicare', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^T[0-9][0-9][0-9][0-9]$', 'National Codes Established for State Medicaid Agencies', proc_12$hcpcs_desc)
+proc_12$hcpcs_desc <- gsub('^V[0-9][0-9][0-9][0-9]$', 'Vision and Hearing Services', proc_12$hcpcs_desc)
+
+# Factorize character variables
+proc_12[procedures_fac] <- lapply(proc_12[procedures_fac], as.factor)
+proc_12 <- droplevels(proc_12)
+
+# Group and pivot the number of procedures by provider
+proc_12_group <- proc_12 %>% group_by(npi, hcpcs_desc) %>% summarise(overcharge=mean(overcharge), line_srvc_cnt=sum(line_srvc_cnt), bene_unique_cnt=sum(bene_unique_cnt))
+proc_12_pivot <- proc_12_group %>% pivot_wider(id_cols='npi', names_from='hcpcs_desc', values_from='line_srvc_cnt', values_fill=0)
+```
+
+Combine providers with procedures
+```{r}
+d_12 <- merge(prov_12, proc_12_pivot, on="npi", all = FALSE, all.x = TRUE)
+d_12 <- complete.cases(d_12, )
+```
+
+After ALL years were combined, add a "year" column and combine all years together
+```{r}
+d_12$year = 2012
+d_13$year = 2013
+d_14$year = 2014
+d_15$year = 2015
+d_16$year = 2016
+d_17$year = 2017
+# Combine tables
+d <- rbind.fill(d_12, d_13, d_14, d_15, d_16, d_17)
+# Transform column names
+colnames(d) <- tolower(colnames(d))
+colnames(d) <- gsub("\\.\\.+", ".", colnames(d))
+colnames(d) <- gsub("\\.", "_", colnames(d))
+str(d, list.len=ncol(d))
+```
+
+Some of the HCPCS groups have too few values. They can be aggregated into larger groups.
+```{r}
+# Number of non-zero rows per column
+colSums(d != 0)
+# New groups
+d$vaccines_or_toxoids <- d$vaccines_or_toxoids + d$immunization_administration_for_vaccines_or_toxoids + d$vaccine_administration
+d$psychiatry_services_and_procedures <- d$psychiatry_services_and_procedures + d$biofeedback_services_and_procedures
+d$neurology_and_neuromuscular_procedures <- d$neurology_and_neuromuscular_procedures + d$central_nervous_system_assessments + d$health_and_behavior_assessment_or_intervention_procedures
+d$therapeutic_procedures <- d$therapeutic_procedures + d$photodynamic_therapy_procedures + d$application_of_a_modality + d$medical_nutrition_therapy_procedures + d$osteopathic_manipulative_treatment_procedures + d$chiropractic_manipulative_treatment_procedures
+d$other_medicine_services_and_procedures <- d$other_medicine_services_and_procedures + d$special_dermatological_procedures
+d$other_care_evaluation_and_management_services <- d$care_management_evaluation_and_management_services + d$transitional_care_evaluation_and_management_services + d$advance_care_planning_evaluation_and_management_services + d$other_evaluation_and_management_services
+d$drug_assay <- d$drug_assay + d$drug_assay_procedures + d$therapeutic_drug_assays + d$genomic_sequencing_procedures_and_other_molecular_multianalyte_assays
+d$cytopathology_procedures <- d$cytopathology_procedures + d$cytogenetic_studies
+d$other_pathology_and_laboratory_procedures <- d$other_pathology_and_laboratory_procedures + d$evocative_or_suppression_testing_procedures + d$clinical_pathology_consultations + d$transfusion_medicine_procedures + d$transcutaneous_laboratory_procedures + d$pathology_and_laboratory_services
+d$diagnostic_radiology_procedures <- d$diagnostic_radiology_procedures + d$diagnostic_radiology_services
+d$radiation_oncology_treatment <- d$radiation_oncology_treatment + d$radiation_therapy_services
+d$surgical_procedures_on_genital_system <- d$surgical_procedures_on_the_female_genital_system + d$surgical_procedures_on_the_male_genital_system
+d$other_surgical_procedures <- d$surgical_procedures_on_the_endocrine_system + d$surgical_procedures_on_the_mediastinum_and_diaphragm + d$operating_microscope_procedures
+d$miscellaneous_services <- d$miscellaneous_services + d$alcohol_and_substance_abuse_assessments + d$sleep_studies_in_home + d$followup_telehealth_consultations + d$face_to_face_educational_services + d$cardiac_and_pulmonary_rehabilitation_services + d$initial_telehealth_consultations + d$filler_procedures + d$laboratory_screening_tests + d$other_services + d$colonoscopy_or_anoscopy + d$medicare_coordinated_care_demonstration + d$primary_care_quality_measures + d$additional_assorted_quality_measures + d$vision_and_hearing_services + d$miscellaneous_medical_services + d$temporary_codes + d$orthotics_and_prosthetics + d$durable_medical_equipment
+d <- d[c("npi_year", "npi", "year", "overcharge", "nppes_provider_state", "provider_type", "number_of_hcpcs", "total_unique_benes", "number_of_med_hcpcs", "total_med_services", "total_med_unique_benes", "total_med_submitted_chrg_amt", "total_med_medicare_allowed_amt", "total_med_medicare_payment_amt", "beneficiary_average_age", "beneficiary_age_less_65_count", "beneficiary_age_65_74_count", "beneficiary_age_75_84_count", "beneficiary_age_greater_84_count", "beneficiary_female_count", "beneficiary_male_count", "beneficiary_race_white_count", "beneficiary_race_black_count", "beneficiary_race_api_count", "beneficiary_race_hispanic_count", "beneficiary_race_natind_count", "beneficiary_nondual_count", "beneficiary_dual_count", "beneficiary_cc_afib_percent", "beneficiary_cc_alzrdsd_percent", "beneficiary_cc_asthma_percent", "beneficiary_cc_cancer_percent", "beneficiary_cc_chf_percent", "beneficiary_cc_ckd_percent", "beneficiary_cc_copd_percent", "beneficiary_cc_depr_percent", "beneficiary_cc_diab_percent", "beneficiary_cc_hyperl_percent", "beneficiary_cc_hypert_percent", "beneficiary_cc_ihd_percent", "beneficiary_cc_ost_percent", "beneficiary_cc_raoa_percent", "beneficiary_cc_schiot_percent", "beneficiary_cc_strk_percent", "beneficiary_average_risk_score", "ambulatory_services", "anesthesia", "category_iii", "drugs_administered_other_than_oral_method", "chemotherapy_drugs", "vaccines_or_toxoids", "psychiatry_services_and_procedures", "dialysis_services_and_procedures", "gastroenterology_procedures", "ophthalmology_services_and_procedures", "special_otorhinolaryngologic_services_and_procedures", "cardiovascular_procedures", "non_invasive_vascular_diagnostic_studies", "pulmonary_procedures", "allergy_and_clinical_immunology_procedures", "endocrinology_services", "neurology_and_neuromuscular_procedures", "highly_complex_drug_or_biologic_agent_administration", "therapeutic_procedures", "physical_medicine_and_rehabilitation_evaluations", "moderate_conscious_sedation", "other_medicine_services_and_procedures", "office_or_other_outpatient_services", "hospital_observation_services", "hospital_inpatient_services", "emergency_department_services", "critical_care_services", "nursing_facility_services", "home_services", "prolonged_services", "other_care_evaluation_and_management_services", "organ_or_disease_oriented_panels", "drug_assay", "urinalysis_procedures", "chemistry_procedures", "hematology_and_coagulation_procedures", "immunology_procedures", "microbiology_procedures", "cytopathology_procedures", "surgical_pathology_procedures", "diagnostic_radiology_procedures", "diagnostic_ultrasound_procedures", "radiologic_guidance", "breast_and_mammography", "bone_or_joint_studies", "radiation_oncology_treatment", "nuclear_medicine_procedures", "fine_needle_aspiration_biopsy_procedures", "surgical_procedures_on_the_auditory_system", "surgical_procedures_on_the_cardiovascular_system", "surgical_procedures_on_the_digestive_system", "surgical_procedures_on_the_eye_and_ocular_adnexa", "surgical_procedures_on_genital_system", "surgical_procedures_on_the_hemic_and_lymphatic_systems", "surgical_procedures_on_the_integumentary_system", "surgical_procedures_on_the_musculoskeletal_system", "surgical_procedures_on_the_nervous_system", "surgical_procedures_on_the_respiratory_system", "surgical_procedures_on_the_urinary_system", "other_surgical_procedures", "screening_examinations_and_disease_management_training", "miscellaneous_diagnostic_and_therapeutic_services", "initial_services_for_medicare_enrollment", "gross_and_microscopic_examinations_prostate_biopsy", "counseling_screening_and_prevention_services", "miscellaneous_services")]
+colSums(d != 0)
+```
+
+Some provider types are idential and can be renamed to have fewer categories. Some provider types are unknown and can be dropped from the dataset. Some only contain 1 observation and can be dropped too.
+```{r}
+levels(d$provider_type)
+d$provider_type <- gsub('allergy/ immunology', 'allergy/immunology', d$provider_type, fixed = TRUE)
+d$provider_type <- gsub('audiologist (billing independently)', 'audiologist', d$provider_type, fixed = TRUE)
+d$provider_type <- gsub('cardiovascular disease (cardiology)', 'cardiology', d$provider_type, fixed = TRUE)
+d$provider_type <- gsub('clinical cardiatric electrophysiology', 'cardiac electrophysiology', d$provider_type, fixed = TRUE)
+d$provider_type <- gsub('clinical cardiac electrophysiology', 'cardiac electrophysiology', d$provider_type, fixed = TRUE)
+d$provider_type <- gsub('colorectal surgery (formerly proctology)', 'colorectal surgery (proctology)', d$provider_type, fixed = TRUE)
+d$provider_type <- gsub('gynecological oncology', 'gynecology/oncology', d$provider_type, fixed = TRUE)
+d$provider_type <- gsub('hematology-oncology', 'hematology/oncology', d$provider_type, fixed = TRUE)
+d$provider_type <- gsub('independent diagnostic testing facility (idtf)', 'independent diagnostic testing facility', d$provider_type, fixed = TRUE)
+d$provider_type <- gsub('obstetrics & gynecology', 'obstetrics/gynecology', d$provider_type, fixed = TRUE)
+d$provider_type <- gsub('occupational therapist in private practice', 'occupational therapist', d$provider_type, fixed = TRUE)
+d$provider_type <- gsub('oral surgery (dentists only)', 'oral surgery (dentist only)', d$provider_type, fixed = TRUE)
+d$provider_type <- gsub('physical therapist in private practice', 'physical therapist', d$provider_type, fixed = TRUE)
+d$provider_type <- gsub('psychologist, clinical', 'clinical psychologist', d$provider_type, fixed = TRUE)
+d$provider_type <- gsub('interventional pain management', 'pain management', d$provider_type, fixed = TRUE)
+d$provider_type <- gsub('interventional cardiology', 'cardiology', d$provider_type, fixed = TRUE)
+d$provider_type <- gsub('registered dietitian or nutrition professional', 'registered dietician/nutrition professional', d$provider_type, fixed = TRUE)
+d$provider_type <- gsub('undefined physician type', '', d$provider_type, fixed = TRUE)
+d$provider_type <- gsub('unknown physician specialty code', '', d$provider_type, fixed = TRUE)
+d$provider_type <- gsub('unknown supplier/provider', '', d$provider_type, fixed = TRUE)
+# Remove unknown provider types
+d$provider_type <- as.character(d$provider_type)
+d$provider_type[d$provider_type==''] <- NA
+d <- d[complete.cases(d),]
+d$provider_type <- as.factor(d$provider_type)
+# Remove provider types that only appear once
+gr <- d %>% group_by(provider_type) %>% summarise(no_rows = length(provider_type))
+gr[which(gr$no_rows == 1),]
+d <- d[which(d$provider_type %notin% c('addiction medicine', 'certified nurse midwife', 'clinic or group practice', 'clinical laboratory', 'gynecology/oncology', 'multispecialty clinic/group practice', 'portable x-ray')), ]
+d <- droplevels(d)
+```
+
+Check NAs, remove the row with negative overcharge
+```{r}
+colSums(is.na(d))
+d <- d[complete.cases(d),]
+d[which(d$overcharge < 0),]
+d <- d[which(d$overcharge > 0),]
+hist(d$overcharge)
+hist(log(d$overcharge))
+colSums(d != 0)
+
+ggplot(d, aes(x = overcharge)) +
+  ggtitle("Histogram of Overcharge") + 
+  geom_histogram(aes(y = ..density..), bins = 60) + 
+  geom_density(color="red")
+
+ggplot(d, aes(x = log(overcharge))) +
+  ggtitle("Histogram of Log Overcharge") + 
+  geom_histogram(aes(y = ..density..), bins = 60) + 
+  geom_density(color="red")
+```
+
+Plot the number of procedures per year
+```{r}
+g1 <- d[c("year", "number_of_hcpcs")] %>%
+  group_by(year) %>% 
+  summarise(number_of_hcpcs = sum(number_of_hcpcs)) %>% 
+  ggplot(aes(year, number_of_hcpcs)) + ggtitle("Total number of HCPCS by year") +
+  geom_line(aes(year, number_of_hcpcs), col="#F8766D", size=1) + ylim(0, NA)
+g2 <- d[c("year", "number_of_hcpcs")] %>%
+  group_by(year) %>% 
+  summarise(number_of_hcpcs = mean(number_of_hcpcs)) %>% 
+  ggplot(aes(year, number_of_hcpcs)) + ggtitle("Average number of HCPCS by year") +
+  geom_line(aes(year, number_of_hcpcs), col="#F8766D", size=1) + ylim(0, NA)
+grid.arrange(g1, g2, nrow=1)
+```
+
+```{r}
+d[c("nppes_provider_state")] %>% group_by(nppes_provider_state) %>% summarise(no_rows = length(nppes_provider_state))
+sum(d$beneficiary_race_white_count)
+sum(d$beneficiary_race_black_count)
+sum(d$beneficiary_race_api_count)
+sum(d$beneficiary_race_hispanic_count)
+sum(d$beneficiary_race_natind_count)
+```
+```{r}
+library(ggplot2)
+ggplot(d, aes(x = number_of_hcpcs)) +
+  ggtitle("Number of HCPCS") + 
+  geom_histogram(aes(y = ..density..), bins=60) + 
+  geom_density(color="red")
+```
+
+
+Select variables for the models and do final transformations. Convert everything to percentages instead of counts
+```{r}
+d_model <- d[ , !(names(d) %in% c("npi_year", "npi", "medicare_participation_indicator", "total_med_submitted_chrg_amt", "total_med_medicare_allowed_amt", "total_med_medicare_payment_amt"))]
+d_model$year <- as.factor(d_model$year)
+# Divide percentages by 100
+d_model$beneficiary_cc_afib_percent <- d_model$beneficiary_cc_afib_percent/100
+d_model$beneficiary_cc_alzrdsd_percent <- d_model$beneficiary_cc_alzrdsd_percent/100
+d_model$beneficiary_cc_asthma_percent <- d_model$beneficiary_cc_asthma_percent/100
+d_model$beneficiary_cc_cancer_percent <- d_model$beneficiary_cc_cancer_percent/100
+d_model$beneficiary_cc_chf_percent <- d_model$beneficiary_cc_chf_percent/100
+d_model$beneficiary_cc_ckd_percent <- d_model$beneficiary_cc_ckd_percent/100
+d_model$beneficiary_cc_copd_percent <- d_model$beneficiary_cc_copd_percent/100
+d_model$beneficiary_cc_depr_percent <- d_model$beneficiary_cc_depr_percent/100
+d_model$beneficiary_cc_diab_percent <- d_model$beneficiary_cc_diab_percent/100
+d_model$beneficiary_cc_hyperl_percent <- d_model$beneficiary_cc_hyperl_percent/100
+d_model$beneficiary_cc_hypert_percent <- d_model$beneficiary_cc_hypert_percent/100
+d_model$beneficiary_cc_ihd_percent <- d_model$beneficiary_cc_ihd_percent/100
+d_model$beneficiary_cc_ost_percent <- d_model$beneficiary_cc_ost_percent/100
+d_model$beneficiary_cc_raoa_percent <- d_model$beneficiary_cc_raoa_percent/100
+d_model$beneficiary_cc_schiot_percent <- d_model$beneficiary_cc_schiot_percent/100
+d_model$beneficiary_cc_strk_percent <- d_model$beneficiary_cc_strk_percent/100
+# Divide beneficiary counts by the number of beneficiaries
+d_model$beneficiary_age_less_65_count <- d_model$beneficiary_age_less_65_count/d_model$total_unique_benes
+d_model$beneficiary_age_65_74_count <- d_model$beneficiary_age_65_74_count/d_model$total_unique_benes
+d_model$beneficiary_age_75_84_count <- d_model$beneficiary_age_75_84_count/d_model$total_unique_benes
+d_model$beneficiary_age_greater_84_count <- d_model$beneficiary_age_greater_84_count/d_model$total_unique_benes
+d_model$beneficiary_female_count <- d_model$beneficiary_female_count/d_model$total_unique_benes
+d_model$beneficiary_male_count <- d_model$beneficiary_male_count/d_model$total_unique_benes
+d_model$beneficiary_race_white_count <- d_model$beneficiary_race_white_count/d_model$total_unique_benes
+d_model$beneficiary_race_black_count <- d_model$beneficiary_race_black_count/d_model$total_unique_benes
+d_model$beneficiary_race_api_count <- d_model$beneficiary_race_api_count/d_model$total_unique_benes
+d_model$beneficiary_race_hispanic_count <- d_model$beneficiary_race_hispanic_count/d_model$total_unique_benes
+d_model$beneficiary_race_natind_count <- d_model$beneficiary_race_natind_count/d_model$total_unique_benes
+d_model$beneficiary_dual_count <- d_model$beneficiary_dual_count/d_model$total_unique_benes
+d_model$beneficiary_nondual_count <- d_model$beneficiary_nondual_count/d_model$total_unique_benes
+# Divide procedure counts by the number of procedures
+d_model$ambulatory_services <- d_model$ambulatory_services/d_model$number_of_hcpcs 
+d_model$anesthesia <- d_model$anesthesia/d_model$number_of_hcpcs 
+d_model$category_iii <- d_model$category_iii/d_model$number_of_hcpcs 
+d_model$drugs_administered_other_than_oral_method <- d_model$drugs_administered_other_than_oral_method/d_model$number_of_hcpcs 
+d_model$chemotherapy_drugs <- d_model$chemotherapy_drugs/d_model$number_of_hcpcs 
+d_model$vaccines_or_toxoids <- d_model$vaccines_or_toxoids/d_model$number_of_hcpcs 
+d_model$psychiatry_services_and_procedures <- d_model$psychiatry_services_and_procedures/d_model$number_of_hcpcs 
+d_model$dialysis_services_and_procedures <- d_model$dialysis_services_and_procedures/d_model$number_of_hcpcs 
+d_model$gastroenterology_procedures <- d_model$gastroenterology_procedures/d_model$number_of_hcpcs 
+d_model$ophthalmology_services_and_procedures <- d_model$ophthalmology_services_and_procedures/d_model$number_of_hcpcs 
+d_model$special_otorhinolaryngologic_services_and_procedures <- d_model$special_otorhinolaryngologic_services_and_procedures/d_model$number_of_hcpcs 
+d_model$cardiovascular_procedures <- d_model$cardiovascular_procedures/d_model$number_of_hcpcs 
+d_model$non_invasive_vascular_diagnostic_studies <- d_model$non_invasive_vascular_diagnostic_studies/d_model$number_of_hcpcs 
+d_model$pulmonary_procedures <- d_model$pulmonary_procedures/d_model$number_of_hcpcs 
+d_model$allergy_and_clinical_immunology_procedures <- d_model$allergy_and_clinical_immunology_procedures/d_model$number_of_hcpcs 
+d_model$endocrinology_services <- d_model$endocrinology_services/d_model$number_of_hcpcs 
+d_model$neurology_and_neuromuscular_procedures <- d_model$neurology_and_neuromuscular_procedures/d_model$number_of_hcpcs 
+d_model$highly_complex_drug_or_biologic_agent_administration <- d_model$highly_complex_drug_or_biologic_agent_administration/d_model$number_of_hcpcs 
+d_model$therapeutic_procedures <- d_model$therapeutic_procedures/d_model$number_of_hcpcs 
+d_model$physical_medicine_and_rehabilitation_evaluations <- d_model$physical_medicine_and_rehabilitation_evaluations/d_model$number_of_hcpcs 
+d_model$moderate_conscious_sedation <- d_model$moderate_conscious_sedation/d_model$number_of_hcpcs 
+d_model$other_medicine_services_and_procedures <- d_model$other_medicine_services_and_procedures/d_model$number_of_hcpcs 
+d_model$office_or_other_outpatient_services <- d_model$office_or_other_outpatient_services/d_model$number_of_hcpcs 
+d_model$hospital_observation_services <- d_model$hospital_observation_services/d_model$number_of_hcpcs 
+d_model$hospital_inpatient_services <- d_model$hospital_inpatient_services/d_model$number_of_hcpcs 
+d_model$emergency_department_services <- d_model$emergency_department_services/d_model$number_of_hcpcs 
+d_model$critical_care_services <- d_model$critical_care_services/d_model$number_of_hcpcs 
+d_model$nursing_facility_services <- d_model$nursing_facility_services/d_model$number_of_hcpcs 
+d_model$home_services <- d_model$home_services/d_model$number_of_hcpcs 
+d_model$prolonged_services <- d_model$prolonged_services/d_model$number_of_hcpcs 
+d_model$other_care_evaluation_and_management_services <- d_model$other_care_evaluation_and_management_services/d_model$number_of_hcpcs 
+d_model$organ_or_disease_oriented_panels <- d_model$organ_or_disease_oriented_panels/d_model$number_of_hcpcs 
+d_model$drug_assay <- d_model$drug_assay/d_model$number_of_hcpcs 
+d_model$urinalysis_procedures <- d_model$urinalysis_procedures/d_model$number_of_hcpcs 
+d_model$chemistry_procedures <- d_model$chemistry_procedures/d_model$number_of_hcpcs 
+d_model$hematology_and_coagulation_procedures <- d_model$hematology_and_coagulation_procedures/d_model$number_of_hcpcs 
+d_model$immunology_procedures <- d_model$immunology_procedures/d_model$number_of_hcpcs 
+d_model$microbiology_procedures <- d_model$microbiology_procedures/d_model$number_of_hcpcs 
+d_model$cytopathology_procedures <- d_model$cytopathology_procedures/d_model$number_of_hcpcs 
+d_model$surgical_pathology_procedures <- d_model$surgical_pathology_procedures/d_model$number_of_hcpcs 
+d_model$diagnostic_radiology_procedures <- d_model$diagnostic_radiology_procedures/d_model$number_of_hcpcs 
+d_model$diagnostic_ultrasound_procedures <- d_model$diagnostic_ultrasound_procedures/d_model$number_of_hcpcs 
+d_model$radiologic_guidance <- d_model$radiologic_guidance/d_model$number_of_hcpcs 
+d_model$breast_and_mammography <- d_model$breast_and_mammography/d_model$number_of_hcpcs 
+d_model$bone_or_joint_studies <- d_model$bone_or_joint_studies/d_model$number_of_hcpcs 
+d_model$radiation_oncology_treatment <- d_model$radiation_oncology_treatment/d_model$number_of_hcpcs 
+d_model$nuclear_medicine_procedures <- d_model$nuclear_medicine_procedures/d_model$number_of_hcpcs 
+d_model$fine_needle_aspiration_biopsy_procedures <- d_model$fine_needle_aspiration_biopsy_procedures/d_model$number_of_hcpcs 
+d_model$surgical_procedures_on_the_auditory_system <- d_model$surgical_procedures_on_the_auditory_system/d_model$number_of_hcpcs 
+d_model$surgical_procedures_on_the_cardiovascular_system <- d_model$surgical_procedures_on_the_cardiovascular_system/d_model$number_of_hcpcs 
+d_model$surgical_procedures_on_the_digestive_system <- d_model$surgical_procedures_on_the_digestive_system/d_model$number_of_hcpcs 
+d_model$surgical_procedures_on_the_eye_and_ocular_adnexa <- d_model$surgical_procedures_on_the_eye_and_ocular_adnexa/d_model$number_of_hcpcs 
+d_model$surgical_procedures_on_genital_system <- d_model$surgical_procedures_on_genital_system/d_model$number_of_hcpcs 
+d_model$surgical_procedures_on_the_hemic_and_lymphatic_systems <- d_model$surgical_procedures_on_the_hemic_and_lymphatic_systems/d_model$number_of_hcpcs 
+d_model$surgical_procedures_on_the_integumentary_system <- d_model$surgical_procedures_on_the_integumentary_system/d_model$number_of_hcpcs 
+d_model$surgical_procedures_on_the_musculoskeletal_system <- d_model$surgical_procedures_on_the_musculoskeletal_system/d_model$number_of_hcpcs 
+d_model$surgical_procedures_on_the_nervous_system <- d_model$surgical_procedures_on_the_nervous_system/d_model$number_of_hcpcs 
+d_model$surgical_procedures_on_the_respiratory_system <- d_model$surgical_procedures_on_the_respiratory_system/d_model$number_of_hcpcs 
+d_model$surgical_procedures_on_the_urinary_system <- d_model$surgical_procedures_on_the_urinary_system/d_model$number_of_hcpcs 
+d_model$other_surgical_procedures <- d_model$other_surgical_procedures/d_model$number_of_hcpcs 
+d_model$screening_examinations_and_disease_management_training <- d_model$screening_examinations_and_disease_management_training/d_model$number_of_hcpcs 
+d_model$miscellaneous_diagnostic_and_therapeutic_services <- d_model$miscellaneous_diagnostic_and_therapeutic_services/d_model$number_of_hcpcs 
+d_model$initial_services_for_medicare_enrollment <- d_model$initial_services_for_medicare_enrollment/d_model$number_of_hcpcs 
+d_model$gross_and_microscopic_examinations_prostate_biopsy <- d_model$gross_and_microscopic_examinations_prostate_biopsy/d_model$number_of_hcpcs 
+d_model$counseling_screening_and_prevention_services <- d_model$counseling_screening_and_prevention_services/d_model$number_of_hcpcs 
+d_model$miscellaneous_services <- d_model$miscellaneous_services/d_model$number_of_hcpcs
+# Rename columns to make them shorter
+colnames(d_model) <- gsub("_count", "", colnames(d_model), fixed = TRUE)
+colnames(d_model) <- gsub("_percent", "", colnames(d_model), fixed = TRUE)
+colnames(d_model) <- gsub("beneficiary", "benef", colnames(d_model), fixed = TRUE)
+```
+
+Find correlated / collinear variables
+```{r}
+nums <- unlist(lapply(d_model, is.numeric))
+summary(d_model[, nums])
+plot = cor(d_model[, c("overcharge", "benef_average_age", "benef_age_less_65", "benef_age_65_74", "benef_age_75_84", "benef_age_greater_84", "benef_male",  "benef_female", "benef_race_white", "benef_race_black", "benef_race_api", "benef_race_hispanic", "benef_race_natind", "benef_dual", "benef_nondual", "benef_cc_afib", "benef_cc_alzrdsd", "benef_cc_asthma", "benef_cc_cancer", "benef_cc_chf", "benef_cc_ckd", "benef_cc_copd", "benef_cc_depr", "benef_cc_diab", "benef_cc_hyperl", "benef_cc_hypert", "benef_cc_ihd", "benef_cc_ost", "benef_cc_raoa", "benef_cc_schiot", "benef_cc_strk", "benef_average_risk_score")])
+ggcorrplot(plot, hc.order = TRUE, type = "lower", outline.col = "white",
+           ggtheme = ggplot2::theme_gray, colors = c("#6D9EC1", "white", "#F8766D"), lab = TRUE,  lab_size = 2)
+
+plot = cor(d_model[, c("overcharge", "benef_average_age",  "benef_female", "benef_race_white", "benef_race_black", "benef_race_api", "benef_race_hispanic", "benef_race_natind", "benef_dual", "benef_cc_afib", "benef_cc_alzrdsd", "benef_cc_asthma", "benef_cc_cancer", "benef_cc_chf", "benef_cc_ckd", "benef_cc_copd", "benef_cc_depr", "benef_cc_diab", "benef_cc_hyperl", "benef_cc_hypert", "benef_cc_ihd", "benef_cc_ost", "benef_cc_raoa", "benef_cc_schiot", "benef_cc_strk", "benef_average_risk_score")])
+ggcorrplot(plot, hc.order = TRUE, type = "lower", outline.col = "white",
+           ggtheme = ggplot2::theme_gray, colors = c("#6D9EC1", "white", "#F8766D"), lab = TRUE,  lab_size = 2)
+
+lincomb <- caret::findLinearCombos(d_model[, nums])
+lapply(lincomb$linearCombos, function(x) colnames(d_model)[x])
+```
+
+Histograms of numeric variables
+```{r}
+hist.data.frame(d_model[, nums])
+```
+
+```{r}
+ggplot(d_model, aes(x=benef_average_age, y=log(overcharge))) +  
+  geom_point(color= "steelblue") + 
+  ggtitle("Overcharge vs. Average Age") +
+  geom_smooth(method="lm", formula = y ~ poly(x, 2), color="red")
+
+ggplot(d_model, aes(x=number_of_hcpcs, y=log(overcharge))) +  
+  geom_point(color= "steelblue") + 
+  ggtitle("Overcharge vs. Number of HCPCS") +
+  geom_smooth(method="lm", formula = y ~ poly(x, 2), color="red")
+
+ggplot(d_model, aes(x=total_unique_benes, y=log(overcharge))) +  
+  geom_point(color= "steelblue") + 
+  ggtitle("Overcharge vs. Number of Unique Beneficiaries") +
+  geom_smooth(method="lm", formula = y ~ poly(x, 2), color="red")
+```
+
+Medical services are excluded
+Males excluded
+Race other excluded
+Nondual excluded
+Age groups excluded
+
+Train-test split stratified by provider type
+```{r}
+set.seed(1234)
+df_index <- createDataPartition(d_model$provider_type, p = .75, list = FALSE)
+df_train <- d_model[df_index,]
+df_test <- d_model[-df_index,]
+```
+
+Model 1
+```{r}
+m1 <- lmer(log(overcharge) ~ year + nppes_provider_state + (1 | provider_type) + log(total_unique_benes) + log(number_of_hcpcs) + benef_average_age + log(benef_female) + log(benef_race_white+0.01) + log(benef_race_black+0.01) + log(benef_race_api+0.01) + log(benef_race_hispanic+0.01) + log(benef_race_natind+0.01) + log(benef_dual+0.01) + log(benef_cc_afib+0.01) + log(benef_cc_alzrdsd) + log(benef_cc_asthma) + log(benef_cc_cancer) + log(benef_cc_chf) + log(benef_cc_ckd) + log(benef_cc_copd) + log(benef_cc_depr) + log(benef_cc_diab) + log(benef_cc_hyperl) + log(benef_cc_hypert) + log(benef_cc_ihd) + log(benef_cc_ost) + log(benef_cc_raoa) + log(benef_cc_schiot+0.01) + log(benef_cc_strk) + benef_average_risk_score, data=d_model, REML=FALSE)
+summary(m1)
+AIC(m1)
+ranef(m1)
+plot(resid(m1) ~ fitted(m1))
+abline(0,0, col='red')
+qqnorm(resid(m1))
+qqline(resid(m1), col="red")
+vif(m1)
+lev = hat(model.matrix(m1))
+plot(lev)
+abline(5*mean(lev),0,col="red")
+d_model[lev>0.02,]
+```
+
+Model 1 validation
+```{r}
+m1_train <- lmer(log(overcharge) ~ year + nppes_provider_state + (1 | provider_type) + log(total_unique_benes) + log(number_of_hcpcs) + benef_average_age + log(benef_female) + log(benef_race_white+0.01) + log(benef_race_black+0.01) + log(benef_race_api+0.01) + log(benef_race_hispanic+0.01) + log(benef_race_natind+0.01) + log(benef_dual+0.01) + log(benef_cc_afib+0.01) + log(benef_cc_alzrdsd) + log(benef_cc_asthma) + log(benef_cc_cancer) + log(benef_cc_chf) + log(benef_cc_ckd) + log(benef_cc_copd) + log(benef_cc_depr) + log(benef_cc_diab) + log(benef_cc_hyperl) + log(benef_cc_hypert) + log(benef_cc_ihd) + log(benef_cc_ost) + log(benef_cc_raoa) + log(benef_cc_schiot+0.01) + log(benef_cc_strk) + benef_average_risk_score, REML=FALSE, data=df_train)
+m1_pred <- predict(m1_train, df_test)
+sqrt(mean((df_test$overcharge - exp(m1_pred)) ^ 2))
+sqrt(mean((df_test[sample(nrow(df_test)), "overcharge"] - exp(m1_pred)) ^ 2)) # baseline 1
+sqrt(mean((df_test$overcharge - mean(df_test$overcharge)) ^ 2)) # baseline 2
+```
+
+Model 2
+```{r}
+m2 <- lm(log(overcharge) ~ year + nppes_provider_state + provider_type + log(total_unique_benes) + log(number_of_hcpcs) + benef_average_age + log(benef_female) + log(benef_race_white+0.01) + log(benef_race_black+0.01) + log(benef_race_api+0.01) + log(benef_race_hispanic+0.01) + log(benef_race_natind+0.01) + log(benef_cc_afib+0.01) + log(benef_cc_alzrdsd) + log(benef_cc_asthma) + log(benef_cc_cancer) + log(benef_cc_chf) + log(benef_cc_ckd) + log(benef_cc_copd) + log(benef_cc_depr) + log(benef_cc_diab) + log(benef_cc_hyperl) + log(benef_cc_hypert) + log(benef_cc_ihd) + log(benef_cc_ost) + log(benef_cc_raoa) + log(benef_cc_schiot+0.01) + log(benef_cc_strk) + log(ambulatory_services+0.01) + log(anesthesia+0.01) + log(category_iii+0.01) + log(drugs_administered_other_than_oral_method+0.01) + log(chemotherapy_drugs+0.01) + log(vaccines_or_toxoids+0.01) + log(psychiatry_services_and_procedures+0.01) + log(dialysis_services_and_procedures+0.01) + log(gastroenterology_procedures+0.01) + log(ophthalmology_services_and_procedures+0.01) + log(special_otorhinolaryngologic_services_and_procedures+0.01) + log(cardiovascular_procedures+0.01) + log(non_invasive_vascular_diagnostic_studies+0.01) + log(pulmonary_procedures+0.01) + log(allergy_and_clinical_immunology_procedures+0.01) + log(endocrinology_services+0.01) + log(neurology_and_neuromuscular_procedures+0.01) + log(highly_complex_drug_or_biologic_agent_administration+0.01) + log(therapeutic_procedures+0.01) + log(physical_medicine_and_rehabilitation_evaluations+0.01) + log(moderate_conscious_sedation+0.01) + log(other_medicine_services_and_procedures+0.01) + log(office_or_other_outpatient_services+0.01) + log(hospital_observation_services+0.01) + log(hospital_inpatient_services+0.01) + log(emergency_department_services+0.01) + log(critical_care_services+0.01) + log(nursing_facility_services+0.01) + log(home_services+0.01) + log(prolonged_services+0.01) + log(other_care_evaluation_and_management_services+0.01) + log(organ_or_disease_oriented_panels+0.01) + log(drug_assay+0.01) + log(urinalysis_procedures+0.01) + log(chemistry_procedures+0.01) + log(hematology_and_coagulation_procedures+0.01) + log(immunology_procedures+0.01) + log(microbiology_procedures+0.01) + log(cytopathology_procedures+0.01) + log(surgical_pathology_procedures+0.01) + log(diagnostic_radiology_procedures+0.01) + log(diagnostic_ultrasound_procedures+0.01) + log(radiologic_guidance+0.01) + log(breast_and_mammography+0.01) + log(bone_or_joint_studies+0.01) + log(radiation_oncology_treatment+0.01) + log(nuclear_medicine_procedures+0.01) + log(fine_needle_aspiration_biopsy_procedures+0.01) + log(surgical_procedures_on_the_auditory_system+0.01) + log(surgical_procedures_on_the_cardiovascular_system+0.01) + log(surgical_procedures_on_the_digestive_system+0.01) + log(surgical_procedures_on_the_eye_and_ocular_adnexa+0.01) + log(surgical_procedures_on_genital_system+0.01) + log(surgical_procedures_on_the_hemic_and_lymphatic_systems+0.01) + log(surgical_procedures_on_the_integumentary_system+0.01) + log(surgical_procedures_on_the_musculoskeletal_system+0.01) + log(surgical_procedures_on_the_nervous_system+0.01) + log(surgical_procedures_on_the_respiratory_system+0.01) + log(surgical_procedures_on_the_urinary_system+0.01) + log(other_surgical_procedures+0.01) + log(screening_examinations_and_disease_management_training+0.01) + log(miscellaneous_diagnostic_and_therapeutic_services+0.01) + log(initial_services_for_medicare_enrollment+0.01) + log(gross_and_microscopic_examinations_prostate_biopsy+0.01) + log(counseling_screening_and_prevention_services+0.01) + log(miscellaneous_services+0.01), data=d_model)
+summary(m2)
+AIC(m2)
+plot(resid(m2) ~ fitted(m2))
+abline(0,0, col='red')
+qqnorm(resid(m2))
+qqline(resid(m2), col="red")
+vif(m2)
+lev = hat(model.matrix(m2))
+plot(lev)
+abline(0.4,0,col="red")
+d_model[lev>0.4,]
+```
+
+Model 2 validation
+```{r}
+m2_train <- lm(log(overcharge) ~ year + nppes_provider_state + provider_type + log(total_unique_benes) + log(number_of_hcpcs) + benef_average_age + log(benef_female) + log(benef_race_white+0.01) + log(benef_race_black+0.01) + log(benef_race_api+0.01) + log(benef_race_hispanic+0.01) + log(benef_race_natind+0.01) + log(benef_dual+0.01) + log(benef_cc_afib+0.01) + log(benef_cc_alzrdsd) + log(benef_cc_asthma) + log(benef_cc_cancer) + log(benef_cc_chf) + log(benef_cc_ckd) + log(benef_cc_copd) + log(benef_cc_depr) + log(benef_cc_diab) + log(benef_cc_hyperl) + log(benef_cc_hypert) + log(benef_cc_ihd) + log(benef_cc_ost) + log(benef_cc_raoa) + log(benef_cc_schiot+0.01) + log(benef_cc_strk) + benef_average_risk_score + log(ambulatory_services+0.01) + log(anesthesia+0.01) + log(category_iii+0.01) + log(drugs_administered_other_than_oral_method+0.01) + log(chemotherapy_drugs+0.01) + log(vaccines_or_toxoids+0.01) + log(psychiatry_services_and_procedures+0.01) + log(dialysis_services_and_procedures+0.01) + log(gastroenterology_procedures+0.01) + log(ophthalmology_services_and_procedures+0.01) + log(special_otorhinolaryngologic_services_and_procedures+0.01) + log(cardiovascular_procedures+0.01) + log(non_invasive_vascular_diagnostic_studies+0.01) + log(pulmonary_procedures+0.01) + log(allergy_and_clinical_immunology_procedures+0.01) + log(endocrinology_services+0.01) + log(neurology_and_neuromuscular_procedures+0.01) + log(highly_complex_drug_or_biologic_agent_administration+0.01) + log(therapeutic_procedures+0.01) + log(physical_medicine_and_rehabilitation_evaluations+0.01) + log(moderate_conscious_sedation+0.01) + log(other_medicine_services_and_procedures+0.01) + log(office_or_other_outpatient_services+0.01) + log(hospital_observation_services+0.01) + log(hospital_inpatient_services+0.01) + log(emergency_department_services+0.01) + log(critical_care_services+0.01) + log(nursing_facility_services+0.01) + log(home_services+0.01) + log(prolonged_services+0.01) + log(other_care_evaluation_and_management_services+0.01) + log(organ_or_disease_oriented_panels+0.01) + log(drug_assay+0.01) + log(urinalysis_procedures+0.01) + log(chemistry_procedures+0.01) + log(hematology_and_coagulation_procedures+0.01) + log(immunology_procedures+0.01) + log(microbiology_procedures+0.01) + log(cytopathology_procedures+0.01) + log(surgical_pathology_procedures+0.01) + log(diagnostic_radiology_procedures+0.01) + log(diagnostic_ultrasound_procedures+0.01) + log(radiologic_guidance+0.01) + log(breast_and_mammography+0.01) + log(bone_or_joint_studies+0.01) + log(radiation_oncology_treatment+0.01) + log(nuclear_medicine_procedures+0.01) + log(fine_needle_aspiration_biopsy_procedures+0.01) + log(surgical_procedures_on_the_auditory_system+0.01) + log(surgical_procedures_on_the_cardiovascular_system+0.01) + log(surgical_procedures_on_the_digestive_system+0.01) + log(surgical_procedures_on_the_eye_and_ocular_adnexa+0.01) + log(surgical_procedures_on_genital_system+0.01) + log(surgical_procedures_on_the_hemic_and_lymphatic_systems+0.01) + log(surgical_procedures_on_the_integumentary_system+0.01) + log(surgical_procedures_on_the_musculoskeletal_system+0.01) + log(surgical_procedures_on_the_nervous_system+0.01) + log(surgical_procedures_on_the_respiratory_system+0.01) + log(surgical_procedures_on_the_urinary_system+0.01) + log(other_surgical_procedures+0.01) + log(screening_examinations_and_disease_management_training+0.01) + log(miscellaneous_diagnostic_and_therapeutic_services+0.01) + log(initial_services_for_medicare_enrollment+0.01) + log(gross_and_microscopic_examinations_prostate_biopsy+0.01) + log(counseling_screening_and_prevention_services+0.01) + log(miscellaneous_services+0.01), data=df_train)
+m2_pred <- predict(m2_train, df_test)
+sqrt(mean((df_test$overcharge - exp(m2_pred)) ^ 2))
+```
+
+Model 3
+```{r}
+temp <- lm(abs(residuals(m2)) ~ fitted(m2))
+wt <- c(1/temp$fitted^2)
+m3 <- lmer(log(overcharge) ~ year + nppes_provider_state + (1 | provider_type) + log(total_unique_benes) + log(number_of_hcpcs) + benef_average_age + log(benef_female) + log(benef_race_white+0.01) + log(benef_race_black+0.01) + log(benef_race_api+0.01) + log(benef_race_hispanic+0.01) + log(benef_race_natind+0.01) + log(benef_dual+0.01) + log(benef_cc_afib+0.01) + log(benef_cc_alzrdsd) + log(benef_cc_asthma) + log(benef_cc_cancer) + log(benef_cc_chf) + log(benef_cc_ckd) + log(benef_cc_copd) + log(benef_cc_depr) + log(benef_cc_diab) + log(benef_cc_hyperl) + log(benef_cc_hypert) + log(benef_cc_ihd) + log(benef_cc_ost) + log(benef_cc_raoa) + log(benef_cc_schiot+0.01) + log(benef_cc_strk) + benef_average_risk_score + log(ambulatory_services+0.01) + log(anesthesia+0.01) + log(category_iii+0.01) + log(drugs_administered_other_than_oral_method+0.01) + log(chemotherapy_drugs+0.01) + log(vaccines_or_toxoids+0.01) + log(psychiatry_services_and_procedures+0.01) + log(dialysis_services_and_procedures+0.01) + log(gastroenterology_procedures+0.01) + log(ophthalmology_services_and_procedures+0.01) + log(special_otorhinolaryngologic_services_and_procedures+0.01) + log(cardiovascular_procedures+0.01) + log(non_invasive_vascular_diagnostic_studies+0.01) + log(pulmonary_procedures+0.01) + log(allergy_and_clinical_immunology_procedures+0.01) + log(endocrinology_services+0.01) + log(neurology_and_neuromuscular_procedures+0.01) + log(highly_complex_drug_or_biologic_agent_administration+0.01) + log(therapeutic_procedures+0.01) + log(physical_medicine_and_rehabilitation_evaluations+0.01) + log(moderate_conscious_sedation+0.01) + log(other_medicine_services_and_procedures+0.01) + log(office_or_other_outpatient_services+0.01) + log(hospital_observation_services+0.01) + log(hospital_inpatient_services+0.01) + log(emergency_department_services+0.01) + log(critical_care_services+0.01) + log(nursing_facility_services+0.01) + log(home_services+0.01) + log(prolonged_services+0.01) + log(other_care_evaluation_and_management_services+0.01) + log(organ_or_disease_oriented_panels+0.01) + log(drug_assay+0.01) + log(urinalysis_procedures+0.01) + log(chemistry_procedures+0.01) + log(hematology_and_coagulation_procedures+0.01) + log(immunology_procedures+0.01) + log(microbiology_procedures+0.01) + log(cytopathology_procedures+0.01) + log(surgical_pathology_procedures+0.01) + log(diagnostic_radiology_procedures+0.01) + log(diagnostic_ultrasound_procedures+0.01) + log(radiologic_guidance+0.01) + log(breast_and_mammography+0.01) + log(bone_or_joint_studies+0.01) + log(radiation_oncology_treatment+0.01) + log(nuclear_medicine_procedures+0.01) + log(fine_needle_aspiration_biopsy_procedures+0.01) + log(surgical_procedures_on_the_auditory_system+0.01) + log(surgical_procedures_on_the_cardiovascular_system+0.01) + log(surgical_procedures_on_the_digestive_system+0.01) + log(surgical_procedures_on_the_eye_and_ocular_adnexa+0.01) + log(surgical_procedures_on_genital_system+0.01) + log(surgical_procedures_on_the_hemic_and_lymphatic_systems+0.01) + log(surgical_procedures_on_the_integumentary_system+0.01) + log(surgical_procedures_on_the_musculoskeletal_system+0.01) + log(surgical_procedures_on_the_nervous_system+0.01) + log(surgical_procedures_on_the_respiratory_system+0.01) + log(surgical_procedures_on_the_urinary_system+0.01) + log(other_surgical_procedures+0.01) + log(screening_examinations_and_disease_management_training+0.01) + log(miscellaneous_diagnostic_and_therapeutic_services+0.01) + log(initial_services_for_medicare_enrollment+0.01) + log(gross_and_microscopic_examinations_prostate_biopsy+0.01) + log(counseling_screening_and_prevention_services+0.01) + log(miscellaneous_services+0.01), REML=FALSE, data=d_model, weights=wt)
+summary(m3)
+AIC(m3)
+ranef(m3)
+plot(resid(m3) ~ log(d_model$overcharge))
+plot(resid(m3) ~ fitted(m3))
+abline(0,0, col='red')
+qqnorm(resid(m3))
+qqline(resid(m3), col="red")
+lev = hat(model.matrix(m3))
+plot(lev)
+abline(mean(lev)*5,0,col="red")
+d_model[lev>mean(lev)*5,]
+vif(m3)
+```
+
+# Model 3 validation
+```{r}
+temp <- lm(abs(residuals(m2_train)) ~ fitted(m2_train))
+wt <- c(1/temp$fitted^2)
+m3_train <- lmer(log(overcharge) ~ year + nppes_provider_state + (1 | provider_type) + log(total_unique_benes) + log(number_of_hcpcs) + benef_average_age + log(benef_female) + log(benef_race_white+0.01) + log(benef_race_black+0.01) + log(benef_race_api+0.01) + log(benef_race_hispanic+0.01) + log(benef_race_natind+0.01) + log(benef_dual+0.01) + log(benef_cc_afib+0.01) + log(benef_cc_alzrdsd) + log(benef_cc_asthma) + log(benef_cc_cancer) + log(benef_cc_chf) + log(benef_cc_ckd) + log(benef_cc_copd) + log(benef_cc_depr) + log(benef_cc_diab) + log(benef_cc_hyperl) + log(benef_cc_hypert) + log(benef_cc_ihd) + log(benef_cc_ost) + log(benef_cc_raoa) + log(benef_cc_schiot+0.01) + log(benef_cc_strk) + benef_average_risk_score + log(ambulatory_services+0.01) + log(anesthesia+0.01) + log(category_iii+0.01) + log(drugs_administered_other_than_oral_method+0.01) + log(chemotherapy_drugs+0.01) + log(vaccines_or_toxoids+0.01) + log(psychiatry_services_and_procedures+0.01) + log(dialysis_services_and_procedures+0.01) + log(gastroenterology_procedures+0.01) + log(ophthalmology_services_and_procedures+0.01) + log(special_otorhinolaryngologic_services_and_procedures+0.01) + log(cardiovascular_procedures+0.01) + log(non_invasive_vascular_diagnostic_studies+0.01) + log(pulmonary_procedures+0.01) + log(allergy_and_clinical_immunology_procedures+0.01) + log(endocrinology_services+0.01) + log(neurology_and_neuromuscular_procedures+0.01) + log(highly_complex_drug_or_biologic_agent_administration+0.01) + log(therapeutic_procedures+0.01) + log(physical_medicine_and_rehabilitation_evaluations+0.01) + log(moderate_conscious_sedation+0.01) + log(other_medicine_services_and_procedures+0.01) + log(office_or_other_outpatient_services+0.01) + log(hospital_observation_services+0.01) + log(hospital_inpatient_services+0.01) + log(emergency_department_services+0.01) + log(critical_care_services+0.01) + log(nursing_facility_services+0.01) + log(home_services+0.01) + log(prolonged_services+0.01) + log(other_care_evaluation_and_management_services+0.01) + log(organ_or_disease_oriented_panels+0.01) + log(drug_assay+0.01) + log(urinalysis_procedures+0.01) + log(chemistry_procedures+0.01) + log(hematology_and_coagulation_procedures+0.01) + log(immunology_procedures+0.01) + log(microbiology_procedures+0.01) + log(cytopathology_procedures+0.01) + log(surgical_pathology_procedures+0.01) + log(diagnostic_radiology_procedures+0.01) + log(diagnostic_ultrasound_procedures+0.01) + log(radiologic_guidance+0.01) + log(breast_and_mammography+0.01) + log(bone_or_joint_studies+0.01) + log(radiation_oncology_treatment+0.01) + log(nuclear_medicine_procedures+0.01) + log(fine_needle_aspiration_biopsy_procedures+0.01) + log(surgical_procedures_on_the_auditory_system+0.01) + log(surgical_procedures_on_the_cardiovascular_system+0.01) + log(surgical_procedures_on_the_digestive_system+0.01) + log(surgical_procedures_on_the_eye_and_ocular_adnexa+0.01) + log(surgical_procedures_on_genital_system+0.01) + log(surgical_procedures_on_the_hemic_and_lymphatic_systems+0.01) + log(surgical_procedures_on_the_integumentary_system+0.01) + log(surgical_procedures_on_the_musculoskeletal_system+0.01) + log(surgical_procedures_on_the_nervous_system+0.01) + log(surgical_procedures_on_the_respiratory_system+0.01) + log(surgical_procedures_on_the_urinary_system+0.01) + log(other_surgical_procedures+0.01) + log(screening_examinations_and_disease_management_training+0.01) + log(miscellaneous_diagnostic_and_therapeutic_services+0.01) + log(initial_services_for_medicare_enrollment+0.01) + log(gross_and_microscopic_examinations_prostate_biopsy+0.01) + log(counseling_screening_and_prevention_services+0.01) + log(miscellaneous_services+0.01), REML=FALSE, weights=wt, data=df_train)
+m3_pred <- predict(m3_train, df_test)
+sqrt(mean((df_test$overcharge - exp(m3_pred)) ^ 2))
+```
+
+Summary output
+```{r}
+stargazer(m1, m2, m3, type="text", single.row=TRUE)
+```
